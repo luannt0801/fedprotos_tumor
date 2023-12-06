@@ -19,11 +19,11 @@ mod_dir = (Path(__file__).parent / ".." / "lib" / "models").resolve()
 if str(mod_dir) not in sys.path:
     sys.path.insert(0, str(mod_dir))
 
-from resnet import resnet18
-from options import args_parser
-from update import LocalUpdate, save_protos, LocalTest, test_inference_new_het_lt
-from models import CNNMnist, CNNFemnist
-from utils import get_dataset, average_weights, exp_details, proto_aggregation, agg_func, average_weights_per, average_weights_sem
+from lib.models.resnet import resnet18
+from lib.options import args_parser
+from lib.update import LocalUpdate, save_protos, LocalTest, test_inference_new_het_lt, test_inference_new_het_cifar
+from lib.models.models import CNNMnist, CNNFemnist
+from lib.utils import get_dataset, average_weights, exp_details, proto_aggregation, agg_func, average_weights_per, average_weights_sem
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -74,14 +74,15 @@ def FedProto_taskheter(args, train_dataset, test_dataset, user_groups, user_grou
         loss_avg = sum(local_losses) / len(local_losses)
         train_loss.append(loss_avg)
 
+    acc = test_inference_new_het_cifar(args, local_model_list, test_dataset, global_protos)
+    print('Test acc: {:.5f}'.format(acc))
     acc_list_l, acc_list_g, loss_list = test_inference_new_het_lt(args, local_model_list, test_dataset, classes_list, user_groups_lt, global_protos)
     print('For all users (with protos), mean of test acc is {:.5f}, std of test acc is {:.5f}'.format(np.mean(acc_list_g),np.std(acc_list_g)))
     print('For all users (w/o protos), mean of test acc is {:.5f}, std of test acc is {:.5f}'.format(np.mean(acc_list_l), np.std(acc_list_l)))
     print('For all users (with protos), mean of proto loss is {:.5f}, std of test acc is {:.5f}'.format(np.mean(loss_list), np.std(loss_list)))
 
     # save protos
-    if args.dataset == 'mnist':
-        save_protos(args, local_model_list, test_dataset, user_groups_lt)
+    save_protos(args, local_model_list, test_dataset, user_groups_lt)
 
 def FedProto_modelheter(args, train_dataset, test_dataset, user_groups, user_groups_lt, local_model_list, classes_list):
     summary_writer = SummaryWriter('../tensorboard/'+ args.dataset +'_fedproto_mh_' + str(args.ways) + 'w' + str(args.shots) + 's' + str(args.stdev) + 'e_' + str(args.num_users) + 'u_' + str(args.rounds) + 'r')
@@ -90,7 +91,6 @@ def FedProto_modelheter(args, train_dataset, test_dataset, user_groups, user_gro
     idxs_users = np.arange(args.num_users)
 
     train_loss, train_accuracy = [], []
-
     for round in tqdm(range(args.rounds)):
         local_weights, local_losses, local_protos = [], [], {}
         print(f'\n | Global Training Round : {round + 1} |\n')
@@ -100,6 +100,7 @@ def FedProto_modelheter(args, train_dataset, test_dataset, user_groups, user_gro
             local_model = LocalUpdate(args=args, dataset=train_dataset, idxs=user_groups[idx])
             w, loss, acc, protos = local_model.update_weights_het(args, idx, global_protos, model=copy.deepcopy(local_model_list[idx]), global_round=round)
             agg_protos = agg_func(protos)
+
 
             local_weights.append(copy.deepcopy(w))
             local_losses.append(copy.deepcopy(loss['total']))
@@ -125,10 +126,14 @@ def FedProto_modelheter(args, train_dataset, test_dataset, user_groups, user_gro
         loss_avg = sum(local_losses) / len(local_losses)
         train_loss.append(loss_avg)
 
-    acc_list_l, acc_list_g = test_inference_new_het_lt(args, local_model_list, test_dataset, classes_list, user_groups_lt, global_protos)
+    acc = test_inference_new_het_cifar(args, local_model_list, test_dataset, global_protos)
+    acc_list_l, acc_list_g, loss_list = test_inference_new_het_lt(args, local_model_list, test_dataset, classes_list, user_groups_lt, global_protos)
     print('For all users (with protos), mean of test acc is {:.5f}, std of test acc is {:.5f}'.format(np.mean(acc_list_g),np.std(acc_list_g)))
     print('For all users (w/o protos), mean of test acc is {:.5f}, std of test acc is {:.5f}'.format(np.mean(acc_list_l), np.std(acc_list_l)))
+    print('For all users (with protos), mean of proto loss is {:.5f}, std of test acc is {:.5f}'.format(np.mean(loss_list), np.std(loss_list)))
+    print('Test acc: {:.5f}'.format(acc))
 
+    save_protos(args, local_model_list, test_dataset, user_groups_lt)
 if __name__ == '__main__':
     start_time = time.time()
 
@@ -150,7 +155,7 @@ if __name__ == '__main__':
     n_list = np.random.randint(max(2, args.ways - args.stdev), min(args.num_classes, args.ways + args.stdev + 1), args.num_users)
     if args.dataset == 'mnist':
         k_list = np.random.randint(args.shots - args.stdev + 1 , args.shots + args.stdev - 1, args.num_users)
-    elif args.dataset == 'cifar10':
+    elif args.dataset == 'cifar10' or args.dataset == 'ADNI' or args.dataset == 'brain':
         k_list = np.random.randint(args.shots - args.stdev + 1 , args.shots + args.stdev + 1, args.num_users)
     elif args.dataset =='cifar100':
         k_list = np.random.randint(args.shots, args.shots + 1, args.num_users)
@@ -187,7 +192,7 @@ if __name__ == '__main__':
                 args.out_channels = 20
             local_model = CNNFemnist(args=args)
 
-        elif args.dataset == 'cifar100' or args.dataset == 'cifar10':
+        elif args.dataset == 'cifar100' or args.dataset == 'cifar10' or args.dataset == 'brain' or args.dataset == 'ADNI':
             if args.mode == 'model_heter':
                 if i<10:
                     args.stride = [1,4]

@@ -5,11 +5,14 @@
 import copy
 import torch
 from torchvision import datasets, transforms
-from sampling import mnist_iid, mnist_noniid, mnist_noniid_unequal, mnist_noniid_lt
-from sampling import femnist_iid, femnist_noniid, femnist_noniid_unequal, femnist_noniid_lt
-from sampling import cifar_iid, cifar100_noniid, cifar10_noniid, cifar100_noniid_lt, cifar10_noniid_lt
-import femnist
+from lib.sampling import mnist_iid, mnist_noniid, mnist_noniid_unequal, mnist_noniid_lt
+from lib.sampling import femnist_iid, femnist_noniid, femnist_noniid_unequal, femnist_noniid_lt
+from lib.sampling import cifar_iid, cifar100_noniid, cifar10_noniid, cifar100_noniid_lt, cifar10_noniid_lt
+from lib.sampling import brain_iid, brain_noniid, brain_noniid_lt, ADNI_iid, ADNI_noniid, ADNI_noniid_lt
+import lib.femnist as femnist
 import numpy as np
+
+
 
 trans_cifar10_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
                                           transforms.RandomHorizontalFlip(),
@@ -27,6 +30,17 @@ trans_cifar100_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
 trans_cifar100_val = transforms.Compose([transforms.ToTensor(),
                                          transforms.Normalize(mean=[0.507, 0.487, 0.441],
                                                               std=[0.267, 0.256, 0.276])])
+trans_brain_train = transforms.Compose([
+                                          transforms.RandomHorizontalFlip(),
+                                          transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=1, hue=0.5),
+                                          transforms.Resize((224, 224)),
+                                          transforms.ToTensor(),
+                                          transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                               std=[0.229, 0.224, 0.225])])
+trans_brain_val = transforms.Compose([transforms.Resize((224, 224)),
+                                      transforms.ToTensor(),
+                                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                             std=[0.229, 0.224, 0.225])])
 
 def get_dataset(args, n_list, k_list):
     """ Returns train and test datasets and a user group which is a dict where
@@ -59,7 +73,6 @@ def get_dataset(args, n_list, k_list):
                 user_groups, classes_list = mnist_noniid(args, train_dataset, args.num_users, n_list, k_list)
                 user_groups_lt = mnist_noniid_lt(args, test_dataset, args.num_users, n_list, k_list, classes_list)
                 classes_list_gt = classes_list
-
     elif args.dataset == 'femnist':
         apply_transform = transforms.Compose([
             transforms.ToTensor(),
@@ -123,7 +136,45 @@ def get_dataset(args, n_list, k_list):
                 user_groups, classes_list = cifar100_noniid(args, train_dataset, args.num_users, n_list, k_list)
                 user_groups_lt = cifar100_noniid_lt(test_dataset, args.num_users, classes_list)
 
+    elif args.dataset == 'brain':
+        train_dataset = datasets.ImageFolder(root='/home/huyenbk/AFORS/FedProto/Brain_Tumor/Training', transform=trans_brain_train)
+        test_dataset = datasets.ImageFolder(root='/home/huyenbk/AFORS/FedProto/Brain_Tumor/Testing', transform=trans_brain_val)
+
+        # sample training data amongst users
+        if args.iid:
+            # Sample IID user data from Mnist
+            user_groups = brain_iid(train_dataset, args.num_users)
+        else:
+            # Sample Non-IID user data from Mnist
+            if args.unequal:
+                # Chose uneuqal splits for every user
+                raise NotImplementedError()
+            else:
+                # Chose euqal splits for every user
+                user_groups, classes_list, classes_list_gt = brain_noniid(args, train_dataset, args.num_users, n_list, k_list)
+                user_groups_lt = brain_noniid_lt(args, test_dataset, args.num_users, n_list, k_list, classes_list)
+
+    elif args.dataset == 'ADNI':
+        train_dataset = datasets.ImageFolder(root='C:/Users/buikh/Documents/code/AFOSR/FedProto/ADNI/train', transform=trans_brain_train)
+        test_dataset = datasets.ImageFolder(root='C:/Users/buikh/Documents/code/AFOSR/FedProto/ADNI/test', transform=trans_brain_val)
+
+        # sample training data amongst users
+        if args.iid:
+            # Sample IID user data from Mnist
+            user_groups = ADNI_iid(train_dataset, args.num_users)
+        else:
+           # Sample Non-IID user data from Mnist
+            if args.unequal:
+                # Chose uneuqal splits for every user
+                raise NotImplementedError()
+            else:
+                # Chose euqal splits for every user
+                user_groups, classes_list, classes_list_gt = ADNI_noniid(args, train_dataset, args.num_users, n_list, k_list)
+                user_groups_lt = ADNI_noniid_lt(args, test_dataset, args.num_users, n_list, k_list, classes_list)
+
+
     return train_dataset, test_dataset, user_groups, user_groups_lt, classes_list, classes_list_gt
+
 
 def average_weights(w):
     """
@@ -171,6 +222,7 @@ def average_weights_sem(w, n_list):
                 ww[model_id][key] = w_avg[key]
 
     return ww
+
 
 def average_weights_per(w):
     """
